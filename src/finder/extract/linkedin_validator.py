@@ -108,4 +108,3 @@ def is_linkedin_profile_url(url: str) -> bool:
 
     return any(path.startswith(p) for p in _ALLOWED_PROFILE_PREFIXES)
 
-
