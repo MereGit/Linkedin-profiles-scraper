@@ -2,5 +2,6 @@ pyyaml
 googlesearch-python
 langchain
 langchain-openai
+openai
 langchain-community
 duckduckgo-search

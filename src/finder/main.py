@@ -86,3 +86,6 @@ def main():
 				status = models.ResultStatus.NOT_MATCH)
 			temporary_firm.to_row()
 			writers.append_urls_csv([temporary_firm], output_csv_path)
+
+if __name__ == "__main__":
+	main()
