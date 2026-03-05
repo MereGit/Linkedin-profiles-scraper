@@ -5,12 +5,17 @@ Builds the queries in the loop of the main function.
 @returns str containing the query
 """
 
+import logging
+
+logger = logging.getLogger("finder.search.query_builder")
+
 def query_builder_firm (firm:str, role:str) -> str:
 	"""Simple concatenation of strings"""
 	try:
-		query = f"Linkedin profile: {firm} {role}" 
+		query = f"Linkedin profile: {firm} {role}"
+		logger.debug(f"Built query: \"{query}\"")
 		return query
 	except Exception as e:
-		print(f"Invalid query: {e}")
+		logger.error(f"Invalid query: {e}")
 
 	return None

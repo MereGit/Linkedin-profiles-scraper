@@ -1,3 +1,6 @@
+pyyaml
+googlesearch-python
 langchain
-langchain_community
-
+langchain-openai
+langchain-community
+duckduckgo-search

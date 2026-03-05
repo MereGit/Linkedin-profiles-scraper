@@ -4,12 +4,15 @@ that were found in the search/extraction/validation pipeline
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 import csv
 from dataclasses import is_dataclass
 from typing import Iterable, Mapping, Any, Sequence, Union
 
-from .models import RoleResult
+logger = logging.getLogger("finder.storage.writers")
+
+from ..models import RoleResult
 
 
 DEFAULT_COLUMNS = [
@@ -95,6 +98,7 @@ def write_csv(
             # Only keep declared columns (avoids random keys breaking your file)
             filtered = {c: d.get(c, "") for c in columns}
             writer.writerow(filtered)
+            logger.debug(f"Wrote row: {filtered}")
 
 
 def write_urls_csv(rows: Iterable[RowLike], output_path: Path) -> None:
