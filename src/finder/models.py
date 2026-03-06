@@ -8,8 +8,6 @@ from typing import Optional
 class ResultStatus(str, Enum):
     TOTAL_MATCH = "match_"
     MISSING_FIRM = "miss_firm"
-    DIFFERENT_FIRM = "diff_firm"
-    WRONG_ROLE = "wr_role"
     NOT_MATCH = "Not matched"
 
 

@@ -1,4 +1,4 @@
-from finder.search import query_builder, web_search
+from finder.search import query_builder
 from finder.extract import linkedin_validator, validation
 from finder.storage import writers
 from finder import models
@@ -7,17 +7,20 @@ from dataclasses import replace
 from pathlib import Path
 import logging
 import yaml, csv
+import os
+
+
 
 logger = logging.getLogger("finder.main")
 
 def main():
 	setup_logger(level=logging.INFO)
-
 	#-----------------------------------------
 	#Opening documents and defining paths
 	#-----------------------------------------
-	output_csv_path = Path("data/Output/Urls.csv")
-	with open("data/Input/roles.yaml", "r") as file:
+	output_csv_path = Path(os.path.join(os.path.dirname(os.getcwd()), "data/Output/Urls.csv"))
+	input_roles_path = os.path.join(os.path.dirname(os.getcwd()), "data/Input/roles.yaml")
+	with open(input_roles_path, "r") as file:
 		roles_data = yaml.safe_load(file)
 
 	priorities = [
@@ -27,7 +30,8 @@ def main():
 	]
 
 	firms = []
-	with open("data/Input/firms.csv", newline = "") as f:
+	input_firms_path = os.path.join(os.path.dirname(os.getcwd()), "data/Input/firms.csv")
+	with open(input_firms_path, newline = "") as f:
 		firms_csv = csv.DictReader(f)
 		for row in firms_csv:
 			firms.append(row["firms"])
@@ -41,42 +45,30 @@ def main():
 		#-------------------------
 		# Web search
 		#-------------------------
-		stop = False
 		found = False
 		for roles in priorities:
 			for role in roles:
 				logger.info(f"Searching: firm=\"{firm}\" role=\"{role}\"")
 				query = query_builder.query_builder_firm(firm, role)
-				first_search_results = web_search.safe_search_with_backoff(query)
 
-				if first_search_results is None:
-					logger.warning(f"Search returned no results for query \"{query}\"")
-					continue
+				#----------------------------
+				# Search and validation
+				#----------------------------
 
-				#------------------------
-				# Double Filtering
-				#------------------------
-				filtered_linkedin_results = []
-				for top_results in first_search_results:
-					if (linkedin_validator.is_linkedin_profile_url(top_results.url) == True):
-						filtered_linkedin_results.append(top_results.url)
-
-				logger.info(f"Google returned {len(first_search_results)} results, {len(filtered_linkedin_results)} are LinkedIn profiles")
-
-				for top_filtered_results in filtered_linkedin_results:
-					goat_tuple = validation.is_correct_role_ai(top_filtered_results, role, firm)
-					if (goat_tuple[0] == True):
-						temporary_firm = replace(temporary_firm, role = role,
-							linkedin_url = goat_tuple[2], name = goat_tuple[4],
-							status = goat_tuple[3])
-						logger.info(f"MATCH for \"{firm}\": role=\"{role}\" url={goat_tuple[2]} status={goat_tuple[3]}")
-						temporary_firm.to_row()
-						writers.append_urls_csv([temporary_firm], output_csv_path)
-						logger.info(f"Appended result to CSV: \"{firm}\" — {role}")
-						stop = True
-						found = True
-						break
-			if stop:
+				goat_tuple = validation.is_correct_role_ai(query, role, firm)
+				if (goat_tuple[0] == True):
+					status_map = {"TRUE": models.ResultStatus.TOTAL_MATCH,
+						"MISSING_FIRM": models.ResultStatus.MISSING_FIRM}
+					temporary_firm = replace(temporary_firm, role = role,
+						linkedin_url = goat_tuple[2], name = goat_tuple[4],
+						status = status_map.get(goat_tuple[3], models.ResultStatus.NOT_MATCH))
+					logger.info(f"MATCH for \"{firm}\": role=\"{role}\" url={goat_tuple[2]} status={goat_tuple[3]}")
+					temporary_firm.to_row()
+					writers.append_urls_csv([temporary_firm], output_csv_path)
+					logger.info(f"Appended result to CSV: \"{firm}\" — {role}")
+					found = True
+					break
+			if found:
 				break
 
 		if found == False:
