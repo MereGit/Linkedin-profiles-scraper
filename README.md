@@ -44,7 +44,7 @@ firms.csv          roles.yaml
     +----------+----------+
                |
        +-------v-------+
-       |   validation   |   DuckDuckGo snippet lookup + GPT-4o-mini classification
+       |   validation   |   DuckDuckGo snippet lookup + GPT-5-mini classification
        +-------+-------+
                |
         +------v------+
@@ -102,7 +102,7 @@ Linkedin-profiles-scraper/
 ## Prerequisites
 
 - **Python 3.10+**
-- An **OpenAI API key** (used by the LLM validation step via `gpt-4o-mini`)
+- An **OpenAI API key** (used by the LLM validation step via `gpt-5-mini`)
 - Internet access (Google search + DuckDuckGo lookups)
 
 ---
@@ -174,7 +174,7 @@ The default `roles.yaml` ships with these tiers:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `OPENAI_API_KEY` | Yes | Your OpenAI API key. Used by the validation step (`gpt-4o-mini`). |
+| `OPENAI_API_KEY` | Yes | Your OpenAI API key. Used by the validation step (`gpt-5-mini`). |
 
 Set it before running:
 
@@ -317,7 +317,7 @@ Being frozen, instances are updated via `dataclasses.replace()` to create new co
 
 ### LLM Validation
 
-`validation.py` uses DuckDuckGo to retrieve the title and snippet for a candidate LinkedIn URL, then sends them to `gpt-4o-mini` via LangChain with a strict prompt that constrains the model to respond with exactly one of five classification labels.
+`validation.py` uses DuckDuckGo to retrieve the title and snippet for a candidate LinkedIn URL, then sends them to `gpt-5-mini` via LangChain with a strict prompt that constrains the model to respond with exactly one of five classification labels.
 
 ---
 
@@ -325,7 +325,7 @@ Being frozen, instances are updated via `dataclasses.replace()` to create new co
 
 - **Google rate limiting** -- running against a large number of firms may trigger CAPTCHAs. The built-in backoff helps but is not foolproof.
 - **DuckDuckGo availability** -- snippet retrieval depends on DuckDuckGo indexing the LinkedIn URL. Recently created profiles may not be found.
-- **LLM accuracy** -- `gpt-4o-mini` may occasionally misclassify roles, especially with non-English job titles or abbreviated role names.
+- **LLM accuracy** -- `gpt-5-mini` may occasionally misclassify roles, especially with non-English job titles or abbreviated role names.
 - **No proxy support** -- all requests go through your machine's default network. For large-scale runs, consider adding proxy rotation.
 - **Single-threaded** -- firms are processed sequentially. Parallelism is not implemented.
 

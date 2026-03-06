@@ -23,7 +23,7 @@ logger = logging.getLogger("finder.extract.validation")
 def is_correct_role_ai(linkedin_url: str, expected_role: str, firm: str) -> Tuple[bool, str, str, str, str]:
 	link = "N/A"
 	check = "FALSE"
-	llm_ag = ChatOpenAI(model="gpt-4o-mini") #Requires the api key to be stored in an env variable
+	llm_ag = ChatOpenAI(model="gpt-5-mini") #Requires the api key to be stored in an env variable
 	prompt = f"You are an expert text evaluator. You will be given a" \
 			 "title and a snippet from a google result in a web search. " \
 			 "These belong to linkedin profiles. You will be also given" \
