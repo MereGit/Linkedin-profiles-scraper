@@ -1,6 +1,6 @@
 # LinkedIn Profile Finder
 
-Automated pipeline that discovers LinkedIn profiles for key corporate roles at a list of target companies. It combines Google search, URL filtering, and LLM-powered validation to match the right person to the right firm and role, then exports the results to CSV.
+Automated pipeline that discovers LinkedIn profiles for key corporate roles at a list of target companies. It combines DuckDuckGo search, URL filtering, and LLM-powered validation to match the right person to the right firm and role, then exports the results to CSV.
 
 ---
 
@@ -35,17 +35,9 @@ firms.csv          roles.yaml
      |  query_builder  |   Build search string: "Linkedin profile: {firm} {role}"
      +---------+-------+
                |
-       +-------v-------+
-       |   web_search   |   Google search with rate-limiting & CAPTCHA detection
-       +-------+-------+
-               |
     +----------v----------+
-    | linkedin_validator   |   Filter: keep only linkedin.com/in/ or /pub/ URLs
+    |     validation       |   DuckDuckGo search + LinkedIn URL filtering + GPT-5-mini classification
     +----------+----------+
-               |
-       +-------v-------+
-       |   validation   |   DuckDuckGo snippet lookup + GPT-5-mini classification
-       +-------+-------+
                |
         +------v------+
         |   writers    |   Append validated result to output CSV
@@ -80,13 +72,12 @@ Linkedin-profiles-scraper/
 |       |
 |       |-- search/
 |       |   |-- __init__.py
-|       |   |-- query_builder.py   # Builds the Google search query string
-|       |   +-- web_search.py      # Executes the search with backoff & CAPTCHA handling
+|       |   +-- query_builder.py   # Builds the search query string
 |       |
 |       |-- extract/
 |       |   |-- __init__.py
 |       |   |-- linkedin_validator.py  # URL normalisation & LinkedIn profile detection
-|       |   +-- validation.py          # LLM-based role/firm match validation
+|       |   +-- validation.py          # DuckDuckGo search, LinkedIn filtering & LLM-based validation
 |       |
 |       +-- storage/
 |           |-- __init__.py
@@ -103,7 +94,7 @@ Linkedin-profiles-scraper/
 
 - **Python 3.10+**
 - An **OpenAI API key** (used by the LLM validation step via `gpt-5-mini`)
-- Internet access (Google search + DuckDuckGo lookups)
+- Internet access (DuckDuckGo search)
 
 ---
 
@@ -190,7 +181,7 @@ export OPENAI_API_KEY="sk-..."
 
 ## Usage
 
-Run the pipeline from the **project root**:
+Run the pipeline from the **`src` directory**:
 
 ```bash
 cd src
@@ -202,7 +193,7 @@ The script will:
 1. Load firms from `data/Input/firms.csv`
 2. Load role priorities from `data/Input/roles.yaml`
 3. For each firm, iterate through roles by priority
-4. Google-search each firm+role combination
+4. Build a query and search DuckDuckGo for each firm+role combination
 5. Filter results to LinkedIn profile URLs only
 6. Validate each candidate profile with the LLM
 7. Write the first match (or an N/A row) to `data/Output/Urls.csv`
@@ -217,7 +208,7 @@ Results are appended to `data/Output/Urls.csv` with these columns:
 |--------|-------------|---------|
 | `role` | The matched role (or `N/A`) | `CEO` |
 | `firm` | The target company | `Acme Corp` |
-| `name` | Profile holder's name (from the LinkedIn title) | `John Doe` |
+| `name` | Profile title (from the DuckDuckGo result) | `John Doe` |
 | `linkedin_url` | Full LinkedIn profile URL | `https://www.linkedin.com/in/johndoe` |
 | `status` | Validation status code (see below) | `match_` |
 
@@ -236,10 +227,7 @@ The pipeline uses Python's `logging` module with timestamped, levelled output to
 | INFO | `finder.main` | Firm progress (`Processing firm 3/120: "Acme Corp"`) |
 | INFO | `finder.main` | Match found and CSV append confirmation |
 | WARNING | `finder.main` | No match found for a firm |
-| INFO | `finder.search.web_search` | Google search executed and result count |
-| WARNING | `finder.search.web_search` | CAPTCHA/block detected |
-| ERROR | `finder.search.web_search` | Search exception |
-| INFO | `finder.extract.validation` | DuckDuckGo lookup and LLM invocation |
+| INFO | `finder.extract.validation` | DuckDuckGo search and LLM invocation |
 | INFO | `finder.extract.validation` | Raw LLM response (`LLM response: "TRUE"`) |
 | WARNING | `finder.extract.validation` | No LinkedIn profile found in DuckDuckGo results |
 | DEBUG | `finder.search.query_builder` | Built query string |
@@ -257,10 +245,8 @@ setup_logger(level=logging.DEBUG)
 [14:32:01] INFO | finder.main | Loaded 50 firms and 3 priority tiers
 [14:32:01] INFO | finder.main | Processing firm 1/50: "Acme Corp"
 [14:32:01] INFO | finder.main | Searching: firm="Acme Corp" role="HR_Director"
-[14:32:05] INFO | finder.search.web_search | Executing Google search: "Linkedin profile: Acme Corp HR_Director"
-[14:32:07] INFO | finder.search.web_search | Search returned 10 results
-[14:32:07] INFO | finder.main | Google returned 10 results, 2 are LinkedIn profiles
-[14:32:07] INFO | finder.extract.validation | DuckDuckGo lookup for: https://www.linkedin.com/in/janedoe
+[14:32:05] INFO | finder.extract.validation | DuckDuckGo search - Linkedin profile: Acme Corp HR_Director
+[14:32:07] INFO | finder.extract.validation | Found a LinkedIn profile in DuckDuckGo results, running LLM validation
 [14:32:08] INFO | finder.extract.validation | LLM validation for https://www.linkedin.com/in/janedoe | firm="Acme Corp" role="HR_Director"
 [14:32:09] INFO | finder.extract.validation | LLM response: "TRUE"
 [14:32:09] INFO | finder.extract.validation | Validation result: Perfect match (status=TRUE)
@@ -278,8 +264,6 @@ The LLM classifies each candidate profile into one of these statuses:
 |-------------|---------------------|-----------|---------|
 | `TRUE` | `TOTAL_MATCH` | `match_` | Role and firm both confirmed |
 | `MISSING_FIRM` | `MISSING_FIRM` | `miss_firm` | Role matches but firm not mentioned |
-| `DIFFERENT_FIRM` | `DIFFERENT_FIRM` | `diff_firm` | Role matches but firm is different |
-| `WRONG_ROLE` | `WRONG_ROLE` | `wr_role` | Firm matches but role does not |
 | `FALSE` | `NOT_MATCH` | `Not matched` | Neither role nor firm found |
 
 When no profile is found at all for a firm, the pipeline writes a row with `status = Not matched` and all fields set to `N/A`.
@@ -304,10 +288,6 @@ class RoleResult:
 
 Being frozen, instances are updated via `dataclasses.replace()` to create new copies with modified fields.
 
-### Rate Limiting
-
-`web_search.py` introduces a random 3-8 second delay before each Google search to mimic human behaviour. If a CAPTCHA/block is detected in the response, it waits an additional 60 seconds before continuing.
-
 ### URL Filtering
 
 `linkedin_validator.py` applies a two-stage filter:
@@ -315,16 +295,21 @@ Being frozen, instances are updated via `dataclasses.replace()` to create new co
 1. **Normalisation** -- strips query params, fragments, trailing slashes, and forces HTTPS
 2. **Classification** -- accepts only URLs with paths starting with `/in/` or `/pub/`, and rejects known non-profile paths (`/company/`, `/jobs/`, `/school/`, etc.)
 
-### LLM Validation
+### Search & LLM Validation
 
-`validation.py` uses DuckDuckGo to retrieve the title and snippet for a candidate LinkedIn URL, then sends them to `gpt-5-mini` via LangChain with a strict prompt that constrains the model to respond with exactly one of five classification labels.
+`validation.py` combines search and validation in a single step:
+
+1. Searches DuckDuckGo (region `it-it`, max 5 results) using the query built by `query_builder`
+2. Iterates through results and filters for LinkedIn profile URLs using `linkedin_validator`
+3. For the first matching LinkedIn URL, extracts the title and snippet from the DuckDuckGo result
+4. Sends them to `gpt-5-mini` via LangChain with a strict prompt that constrains the model to respond with exactly one of three classification labels (`TRUE`, `MISSING_FIRM`, `FALSE`)
 
 ---
 
 ## Limitations and Caveats
 
-- **Google rate limiting** -- running against a large number of firms may trigger CAPTCHAs. The built-in backoff helps but is not foolproof.
-- **DuckDuckGo availability** -- snippet retrieval depends on DuckDuckGo indexing the LinkedIn URL. Recently created profiles may not be found.
+- **DuckDuckGo availability** -- search and snippet retrieval depend on DuckDuckGo indexing the LinkedIn URL. Recently created profiles may not be found.
+- **DuckDuckGo rate limiting** -- running against a large number of firms may trigger rate limits or temporary blocks from DuckDuckGo.
 - **LLM accuracy** -- `gpt-5-mini` may occasionally misclassify roles, especially with non-English job titles or abbreviated role names.
 - **No proxy support** -- all requests go through your machine's default network. For large-scale runs, consider adding proxy rotation.
 - **Single-threaded** -- firms are processed sequentially. Parallelism is not implemented.
