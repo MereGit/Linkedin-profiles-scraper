@@ -29,14 +29,22 @@ def main():
 	    roles_data["Lower priority"]
 	]
 
+	# Load firms already processed in the output CSV
+	already_done = set()
+	if output_csv_path.exists():
+		with open(output_csv_path, newline="", encoding="utf-8") as f:
+			for row in csv.DictReader(f):
+				already_done.add(row["firm"])
+
 	firms = []
 	input_firms_path = os.path.join(os.path.dirname(os.getcwd()), "data/Input/firms.csv")
 	with open(input_firms_path, newline = "") as f:
 		firms_csv = csv.DictReader(f)
 		for row in firms_csv:
-			firms.append(row["firms"])
+			if row["firms"] not in already_done:
+				firms.append(row["firms"])
 
-	logger.info(f"Loaded {len(firms)} firms and {len(priorities)} priority tiers")
+	logger.info(f"Loaded {len(firms)} new firms ({len(already_done)} already processed) and {len(priorities)} priority tiers")
 
 	for i, firm in enumerate(firms, 1):
 		logger.info(f"Processing firm {i}/{len(firms)}: \"{firm}\"")
@@ -45,7 +53,8 @@ def main():
 		#-------------------------
 		# Web search
 		#-------------------------
-		found = False
+		max_profiles = 2
+		matches_found = 0
 		for roles in priorities:
 			for role in roles:
 				logger.info(f"Searching: firm=\"{firm}\" role=\"{role}\"")
@@ -59,19 +68,20 @@ def main():
 				if (goat_tuple[0] == True):
 					status_map = {"TRUE": models.ResultStatus.TOTAL_MATCH,
 						"MISSING_FIRM": models.ResultStatus.MISSING_FIRM}
-					temporary_firm = replace(temporary_firm, role = role,
+					result = replace(temporary_firm, role = role,
 						linkedin_url = goat_tuple[2], name = goat_tuple[4],
 						status = status_map.get(goat_tuple[3], models.ResultStatus.NOT_MATCH))
 					logger.info(f"MATCH for \"{firm}\": role=\"{role}\" url={goat_tuple[2]} status={goat_tuple[3]}")
-					temporary_firm.to_row()
-					writers.append_urls_csv([temporary_firm], output_csv_path)
+					result.to_row()
+					writers.append_urls_csv([result], output_csv_path)
 					logger.info(f"Appended result to CSV: \"{firm}\" — {role}")
-					found = True
-					break
-			if found:
+					matches_found += 1
+					if matches_found >= max_profiles:
+						break
+			if matches_found >= max_profiles:
 				break
 
-		if found == False:
+		if matches_found == 0:
 			logger.warning(f"No match found for \"{firm}\", writing N/A row")
 			temporary_firm = replace(temporary_firm, role = "N/A",
 				linkedin_url = "N/A", name = "N/A",

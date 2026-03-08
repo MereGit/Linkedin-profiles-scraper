@@ -54,6 +54,8 @@ def is_correct_role_ai(query: str, expected_role: str, firm: str) -> Tuple[bool,
 				f" [Option]TRUE: [Case] if the role/synonim at the firm was found in either the snippet or the title\n"
 				f" [Option]MISSING_FIRM: [Case]  if the role or a synonim was found but the firm was missing\n"
 				f" [Option]FALSE: [Case]  in any other case\n"
+				f" Ensure that the firm is based in Italy: if I look for the Head or HR of Lavazza it shound't pick"
+				f" a profile of a Head of HR of Lavazza in the US."
 				f" DO NOT ANSWER WITH LONGER MESSAGES. IT IS VITAL THAT YOU ONLY ANSWER WITH THE OPTIONS"
 				f" LISTED ABOVE. Here there is the role and the firm: {firm}, {expected_role}"
 				f" \n Here there is the title: {title} \n Here there is the snippet: {snippet}"
