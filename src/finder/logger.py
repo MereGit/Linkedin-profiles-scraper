@@ -5,7 +5,7 @@ def setup_logger(level=logging.INFO):
     if not logger.handlers:
         handler = logging.StreamHandler()
         fmt = logging.Formatter(
-            "[%(asctime)s] %(levelname)s | %(name)s | %(message)s",
+            "[%(asctime)s] %(levelname)s | %(threadName)s | %(name)s | %(message)s",
             datefmt="%H:%M:%S",
         )
         handler.setFormatter(fmt)

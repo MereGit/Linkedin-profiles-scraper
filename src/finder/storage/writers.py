@@ -109,3 +109,96 @@ def write_urls_csv(rows: Iterable[RowLike], output_path: Path) -> None:
 def append_urls_csv(rows: Iterable[RowLike], output_path: Path) -> None:
     """Convenience wrapper for appending."""
     write_csv(rows=rows, output_path=output_path, columns=DEFAULT_COLUMNS, mode="a")
+
+
+# -------------------------------------------------
+# Temp CSV helpers for multi-threaded processing
+# -------------------------------------------------
+
+def get_temp_csv_path(output_dir: Path, thread_index: int) -> Path:
+    """Returns the deterministic temp CSV path for a given thread index."""
+    return output_dir / f"temp_thread_{thread_index}.csv"
+
+
+def discover_temp_csvs(output_dir: Path) -> list[Path]:
+    """Finds all existing temp_thread_*.csv files, sorted by index."""
+    return sorted(output_dir.glob("temp_thread_*.csv"))
+
+
+def read_done_firms_from_csv(csv_path: Path) -> tuple[set[str], set[str]]:
+    """
+    Reads a CSV and extracts the set of processed firms and known URLs.
+    @arg csv_path: path to any CSV with the default columns
+    @returns (firms_set, urls_set). Returns empty sets if file missing/empty.
+    """
+    firms = set()
+    urls = set()
+    if not csv_path.exists() or csv_path.stat().st_size == 0:
+        return firms, urls
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f, skipinitialspace=True)
+        if not reader.fieldnames or "firm" not in reader.fieldnames:
+            return firms, urls
+        for row in reader:
+            firms.add(row["firm"])
+            url = row.get("linkedin_url") or row.get("url", "")
+            if url and url != "N/A":
+                urls.add(url)
+    return firms, urls
+
+
+def read_csv_rows(csv_path: Path) -> list[dict]:
+    """
+    Reads all rows from a CSV as plain dicts.
+    @arg csv_path: path to a CSV file
+    @returns list of row dicts. Empty list if file missing/empty.
+    """
+    if not csv_path.exists() or csv_path.stat().st_size == 0:
+        return []
+    rows = []
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f, skipinitialspace=True)
+        for row in reader:
+            rows.append(dict(row))
+    return rows
+
+
+def merge_temp_csvs(output_dir: Path, final_path: Path, firm_order: list[str]) -> None:
+    """
+    Merges all temp CSVs and the existing final CSV into a single
+    sorted, deduplicated output file.
+    @arg output_dir: directory containing temp_thread_*.csv files
+    @arg final_path: path to the final Urls.csv
+    @arg firm_order: ordered list of all firms from firms.csv (for sorting)
+    """
+    # Build ordering index
+    order_map = {firm: i for i, firm in enumerate(firm_order)}
+    fallback_order = len(firm_order)
+
+    # Collect all rows: final CSV + temps
+    all_rows = read_csv_rows(final_path)
+    for temp_path in discover_temp_csvs(output_dir):
+        all_rows.extend(read_csv_rows(temp_path))
+
+    # Deduplicate by (firm, linkedin_url)
+    seen = set()
+    unique_rows = []
+    for row in all_rows:
+        key = (row.get("firm", ""), row.get("linkedin_url", ""))
+        if key not in seen:
+            seen.add(key)
+            unique_rows.append(row)
+
+    # Sort by original firms.csv order
+    unique_rows.sort(key=lambda r: order_map.get(r.get("firm", ""), fallback_order))
+
+    # Overwrite the final CSV
+    write_csv(rows=unique_rows, output_path=final_path, columns=DEFAULT_COLUMNS, mode="w")
+    logger.info(f"Merged {len(unique_rows)} rows into {final_path}")
+
+
+def delete_temp_csvs(output_dir: Path) -> None:
+    """Discovers and deletes all temp CSV files in the output directory."""
+    for temp_path in discover_temp_csvs(output_dir):
+        temp_path.unlink()
+        logger.info(f"Deleted temp file: {temp_path}")

@@ -7,7 +7,6 @@ from typing import Optional
 
 class ResultStatus(str, Enum):
     TOTAL_MATCH = "match_"
-    MISSING_FIRM = "miss_firm"
     NOT_MATCH = "Not matched"
 
 
