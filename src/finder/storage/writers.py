@@ -1,5 +1,5 @@
 """
-This module takes care of writing in the csv the links of the roles
+This module takes care of writing in the csv the links of the persons
 that were found in the search/extraction/validation pipeline
 """
 from __future__ import annotations
@@ -12,29 +12,28 @@ from typing import Iterable, Mapping, Any, Sequence, Union
 
 logger = logging.getLogger("finder.storage.writers")
 
-from ..models import RoleResult
+from ..models import PersonResult
 
 
 DEFAULT_COLUMNS = [
-    "role",
-    "firm",
     "name",
+    "firm",
     "linkedin_url",
     "status",
 ]
 
 
-RowLike = Union[RoleResult, Mapping[str, Any]]
+RowLike = Union[PersonResult, Mapping[str, Any]]
 
 
 def _normalize_row(row: RowLike) -> dict:
     """
     Function that normalizes datastructures/normalized rows used
     in the pipeline for csv writing
-    @arg Rowlike: RoleResult dataclass or dict-like row
+    @arg Rowlike: PersonResult dataclass or dict-like row
     @returns a plain dict suitable for csv.DictWriter
     """
-    if isinstance(row, RoleResult):
+    if isinstance(row, PersonResult):
         return row.to_row()
 
     if isinstance(row, Mapping):
@@ -125,26 +124,26 @@ def discover_temp_csvs(output_dir: Path) -> list[Path]:
     return sorted(output_dir.glob("temp_thread_*.csv"))
 
 
-def read_done_firms_from_csv(csv_path: Path) -> tuple[set[str], set[str]]:
+def read_done_persons_from_csv(csv_path: Path) -> tuple[set[tuple[str, str]], set[str]]:
     """
-    Reads a CSV and extracts the set of processed firms and known URLs.
+    Reads a CSV and extracts the set of processed (name, firm) pairs and known URLs.
     @arg csv_path: path to any CSV with the default columns
-    @returns (firms_set, urls_set). Returns empty sets if file missing/empty.
+    @returns (persons_set, urls_set). Returns empty sets if file missing/empty.
     """
-    firms = set()
+    persons = set()
     urls = set()
     if not csv_path.exists() or csv_path.stat().st_size == 0:
-        return firms, urls
+        return persons, urls
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.DictReader(f, skipinitialspace=True)
-        if not reader.fieldnames or "firm" not in reader.fieldnames:
-            return firms, urls
+        if not reader.fieldnames or "name" not in reader.fieldnames:
+            return persons, urls
         for row in reader:
-            firms.add(row["firm"])
-            url = row.get("linkedin_url") or row.get("url", "")
+            persons.add((row["name"], row["firm"]))
+            url = row.get("linkedin_url", "")
             if url and url != "N/A":
                 urls.add(url)
-    return firms, urls
+    return persons, urls
 
 
 def read_csv_rows(csv_path: Path) -> list[dict]:
@@ -163,34 +162,34 @@ def read_csv_rows(csv_path: Path) -> list[dict]:
     return rows
 
 
-def merge_temp_csvs(output_dir: Path, final_path: Path, firm_order: list[str]) -> None:
+def merge_temp_csvs(output_dir: Path, final_path: Path, person_order: list[tuple[str, str]]) -> None:
     """
     Merges all temp CSVs and the existing final CSV into a single
     sorted, deduplicated output file.
     @arg output_dir: directory containing temp_thread_*.csv files
     @arg final_path: path to the final Urls.csv
-    @arg firm_order: ordered list of all firms from firms.csv (for sorting)
+    @arg person_order: ordered list of all (name, firm) tuples from persons.csv (for sorting)
     """
     # Build ordering index
-    order_map = {firm: i for i, firm in enumerate(firm_order)}
-    fallback_order = len(firm_order)
+    order_map = {person: i for i, person in enumerate(person_order)}
+    fallback_order = len(person_order)
 
     # Collect all rows: final CSV + temps
     all_rows = read_csv_rows(final_path)
     for temp_path in discover_temp_csvs(output_dir):
         all_rows.extend(read_csv_rows(temp_path))
 
-    # Deduplicate by (firm, linkedin_url)
+    # Deduplicate by (name, firm)
     seen = set()
     unique_rows = []
     for row in all_rows:
-        key = (row.get("firm", ""), row.get("linkedin_url", ""))
+        key = (row.get("name", ""), row.get("firm", ""))
         if key not in seen:
             seen.add(key)
             unique_rows.append(row)
 
-    # Sort by original firms.csv order
-    unique_rows.sort(key=lambda r: order_map.get(r.get("firm", ""), fallback_order))
+    # Sort by original persons.csv order
+    unique_rows.sort(key=lambda r: order_map.get((r.get("name", ""), r.get("firm", "")), fallback_order))
 
     # Overwrite the final CSV
     write_csv(rows=unique_rows, output_path=final_path, columns=DEFAULT_COLUMNS, mode="w")

@@ -1,11 +1,11 @@
 """
 This module defines an agent that validates the link, checking whether
-the linkedin profile matches the role at the firm we were looking for.
-@arg query: one of the urls from the list that was found using the google search
-@arg expected_role: role from the list, is the same used to run the google search
+the linkedin profile matches the person at the firm we were looking for.
+@arg query: one of the urls from the list that was found using the web search
+@arg person_name: name of the person we are looking for
 @arg firm: firm in which we expect the person to be employed in
 @returns a bool confirming that the link corresponds (partially) to the input,
-the link, and the header title to be used in the header column
+the link, and the check label
 """
 
 import logging
@@ -21,10 +21,9 @@ import tiktoken
 
 logger = logging.getLogger("finder.extract.validation")
 
-def is_correct_role_ai(query: str, expected_role: str, firm: str) -> Tuple[bool, str, str, str, str, float]:
+def is_correct_person_ai(query: str, person_name: str, firm: str) -> Tuple[bool, str, str, str, float]:
 	link = "N/A"
 	check = "FALSE"
-	title = "N/A"
 	llm_ag = ChatOpenAI(model="gpt-5-mini") #Requires the api key to be stored in an env variable
 	wrapper_ddg = DuckDuckGoSearchAPIWrapper(region="it-it", max_results=25)
 	search = DuckDuckGoSearchResults(api_wrapper=wrapper_ddg, output_format="json")
@@ -35,7 +34,7 @@ def is_correct_role_ai(query: str, expected_role: str, firm: str) -> Tuple[bool,
 		results = json.loads(results_json)
 	except DDGSException:
 		logger.warning(f"DuckDuckGo returned no results for {query}")
-		return False, "No match", link, check, title, 0.0
+		return False, "No match", link, check, 0.0
 	logger.debug(f"DuckDuckGo returned {len(results)} results")
 
 	for result in results:
@@ -46,30 +45,34 @@ def is_correct_role_ai(query: str, expected_role: str, firm: str) -> Tuple[bool,
 			title = result.get('title', '')
 			prompt = (
 				f" You are an expert text evaluator. You will be given a"
-				f" title and a snippet from a google result in a web search."
-				f" These belong to linkedin profiles. You will be also given in input"
-				f" a corporate role at a firm. Your job is to check whether"
-				f" in the title or in the snippet, there is the role/a VERY CLOSE synonim of"
-				f" the role and the firm you were given in input. E.g. if the role is Head of HR you"
-				f" shouldn't pick a business unit HR, but you could pick a Head of people. Then, you will answer"
-				f" one and only one of the following options in the following cases: \n"
-				f" [Option]TRUE: [Case] if the role/synonim at the firm was found in either the snippet or the title\n"
-				f" Ensure that the firm is based in Italy: if I look for the Head or HR of Lavazza it shound't pick"
-				f" a profile of a Head of HR of Lavazza in the US."
-				f" Also be sure that they are currently employed for the firm searched: if in the snippet you find that"
-				f" the person is a former employee of the firm and they are now {(datetime.today().strftime('%Y-%m-%d'))} employed , you should answer FALSE."
-				f" The FIRM you find from the online search has to be PRECISELY THE SAME as the one given in input. Don't be key sensitive, but at the same time"
-				f" don't accept different variations of the name give as a title, unless we are reffering to a group (If input is Lavazza and you find Lavazza group)"
+				f" title and a snippet from a linkedin profile found in a web search."
+				f" Your job is to check whether the person's name and the firm"
+				f" match what we are looking for."
+				f" You will be given a person's name and a firm."
+				f" Check if the title or snippet refers to the same person"
+				f" (the name should match or be very close) AND the same firm."
+				f" The FIRM you find from the online search has to be PRECISELY THE SAME"
+				f" as the one given in input. Don't be key sensitive, but at the same time"
+				f" don't accept different variations of the name given as a title, unless"
+				f" we are referring to a group (If input is Lavazza and you find Lavazza group"
 				f" it is fine, if you find Lavazzer for instance no)."
-				f" If the expected is Any role, return TRUE if the firm is found in the title or snippet."
+				f" Ensure that the firm is based in Italy: if I look for Marco Rossi at Lavazza"
+				f" it shouldn't pick a profile of a Marco Rossi at Lavazza in the US."
+				f" Also be sure that they are currently employed at the firm: if in the snippet"
+				f" you find that the person is a former employee and they are now"
+				f" ({(datetime.today().strftime('%Y-%m-%d'))}) employed elsewhere, you should answer FALSE."
+				f" You will answer one and only one of the following options:\n"
+				f" [Option]TRUE: if the person's name AND the firm are found in the snippet or title\n"
+				f" [Option]FALSE: otherwise\n"
 				f" DO NOT ANSWER WITH LONGER MESSAGES. IT IS VITAL THAT YOU ONLY ANSWER WITH THE OPTIONS"
-				f" LISTED ABOVE. Here there is the firm: {firm}. Here there is the role: {expected_role}"
+				f" LISTED ABOVE."
+				f" Here there is the firm: {firm}. Here is the person's name: {person_name}"
 				f" \n Here there is the title: {title} \n Here there is the snippet: {snippet}"
 			)
 
-			# Check if expected role is in the snippet/title
+			# Check if person matches the snippet/title
 			logger.debug(f"Prompt sent to LLM:\n{prompt}")
-			logger.info(f"LLM validation for {link} | firm=\"{firm}\" role=\"{expected_role}\"")
+			logger.info(f"LLM validation for {link} | person=\"{person_name}\" firm=\"{firm}\"")
 			try:
 				encoding = tiktoken.encoding_for_model("gpt-5-mini")
 			except KeyError:
@@ -85,10 +88,10 @@ def is_correct_role_ai(query: str, expected_role: str, firm: str) -> Tuple[bool,
 			logger.debug(f"LLM response: \"{check}\"")
 			if check == "TRUE":
 				logger.info(f"Validation result: Perfect match (status={check})")
-				return True, "Perfect match", link, check, title, total_cost
+				return True, "Perfect match", link, check, total_cost
 		else:
 			logger.debug("Result link is not a LinkedIn profile.")
 
 
 	logger.warning(f"No LinkedIn profile found in DuckDuckGo results for {query}")
-	return False, "No match", link, check, title, 0.0
+	return False, "No match", link, check, 0.0

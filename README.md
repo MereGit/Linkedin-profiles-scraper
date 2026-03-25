@@ -1,6 +1,6 @@
 # LinkedIn Profile Finder
 
-Automated pipeline that discovers LinkedIn profiles for key corporate roles at a list of target companies. It combines DuckDuckGo search, URL filtering, and LLM-powered validation to match the right person to the right firm and role, then exports the results to CSV.
+Automated pipeline that discovers LinkedIn profiles for specific people at target companies. It combines DuckDuckGo search, URL filtering, and LLM-powered validation to match the right person to the right firm, then exports the results to CSV.
 
 ---
 
@@ -12,10 +12,10 @@ Automated pipeline that discovers LinkedIn profiles for key corporate roles at a
 - [Installation](#installation)
 - [Configuration](#configuration)
   - [Input Files](#input-files)
-  - [Roles Priority](#roles-priority)
   - [Environment Variables](#environment-variables)
 - [Usage](#usage)
 - [Output](#output)
+- [Multi-threading](#multi-threading)
 - [Logging](#logging)
 - [Validation Statuses](#validation-statuses)
 - [Architecture Deep Dive](#architecture-deep-dive)
@@ -27,24 +27,23 @@ Automated pipeline that discovers LinkedIn profiles for key corporate roles at a
 ## How It Works
 
 ```
-firms.csv          roles.yaml
-    |                   |
-    +-------+  +--------+
-            |  |
-     +------v--v------+
-     |  query_builder  |   Build search string: "Linkedin profile: {firm} {role}"
-     +---------+-------+
-               |
-    +----------v----------+
-    |     validation       |   DuckDuckGo search + LinkedIn URL filtering + GPT-5-mini classification
-    +----------+----------+
-               |
-        +------v------+
-        |   writers    |   Append validated result to output CSV
-        +-------------+
+persons.csv
+    |
+    v
++----------------+
+| query_builder  |   Build search string: "site:it.linkedin.com/in/ {name} {firm}"
++-------+--------+
+        |
++-------v-----------+
+|     validation     |   DuckDuckGo search + LinkedIn URL filtering + GPT-5-mini classification
++-------+-----------+
+        |
++-------v------+
+|   writers     |   Append validated result to output CSV
++--------------+
 ```
 
-For each firm, the pipeline iterates through roles **by priority tier** (Highest > Medium > Lower). It stops as soon as a match is found for a firm, then moves on to the next one.
+For each (name, firm) pair in the input, the pipeline searches DuckDuckGo, filters for LinkedIn profile URLs, validates the match with an LLM, and writes the result to CSV.
 
 ---
 
@@ -58,8 +57,7 @@ Linkedin-profiles-scraper/
 |
 |-- data/
 |   |-- Input/
-|   |   |-- firms.csv              # List of target companies (one "firms" column)
-|   |   +-- roles.yaml             # Prioritised list of roles to search for
+|   |   +-- persons.csv            # List of (name, firm) pairs to search for
 |   +-- Output/
 |       +-- Urls.csv               # Pipeline results
 |
@@ -67,7 +65,7 @@ Linkedin-profiles-scraper/
 |   +-- finder/
 |       |-- __init__.py            # Package marker
 |       |-- main.py                # Orchestrator / entry point
-|       |-- models.py              # RoleResult dataclass & ResultStatus enum
+|       |-- models.py              # PersonResult dataclass & ResultStatus enum
 |       |-- logger.py              # Centralised logging configuration
 |       |
 |       |-- search/
@@ -122,44 +120,16 @@ pip install -r requirements.txt
 
 ### Input Files
 
-#### `data/Input/firms.csv`
+#### `data/Input/persons.csv`
 
-A CSV file with a header row containing a `firms` column. Each subsequent row is a company name to search for.
+A CSV file with two columns: `name` (the person to search for) and `firm` (the company they work at).
 
 ```csv
-firms
-Acme Corp
-Contoso Ltd
-Fabrikam Inc
+name,firm
+Marco Rossi,Lavazza
+Giulia Bianchi,TIM
+Luigi Verdi,Pirelli
 ```
-
-#### `data/Input/roles.yaml`
-
-A YAML file defining three priority tiers of roles. The pipeline tries **Highest priority** roles first, then **Medium**, then **Lower**, stopping at the first match per firm.
-
-```yaml
-Highest priority:
-  - HR_Director
-  - Chief Human Resources Officer (CHRO)
-
-Medium priority:
-  - CEO
-  - Managing Director
-
-Lower priority:
-  - Chief Technology Officer (CTO)
-  - Chief Digital Officer (CDO)
-```
-
-### Roles Priority
-
-The default `roles.yaml` ships with these tiers:
-
-| Tier | Roles |
-|------|-------|
-| **Highest** | HR Director, Direttore Risorse Umane, CHRO, Head of People, Head of People Operations |
-| **Medium** | CEO, Chief Executive Officer, Amministratore Delegato, Managing Director, Direttore Generale |
-| **Lower** | TISO, CTO, CINO, CPO, Chief Talent Officer, CDO, Chief Transformation Officer, CSO |
 
 ### Environment Variables
 
@@ -190,27 +160,46 @@ python -m finder.main
 
 The script will:
 
-1. Load firms from `data/Input/firms.csv`
-2. Load role priorities from `data/Input/roles.yaml`
-3. For each firm, iterate through roles by priority
-4. Build a query and search DuckDuckGo for each firm+role combination
-5. Filter results to LinkedIn profile URLs only
-6. Validate each candidate profile with the LLM
-7. Write the first match (or an N/A row) to `data/Output/Urls.csv`
+1. Load person+firm pairs from `data/Input/persons.csv`
+2. For each pair, build a query and search DuckDuckGo
+3. Filter results to LinkedIn profile URLs only
+4. Validate each candidate profile with the LLM
+5. Write the match (or an N/A row) to `data/Output/Urls.csv`
+
+To run with multiple threads:
+
+```bash
+python -m finder.main 4   # uses 4 threads
+```
 
 ---
 
 ## Output
 
-Results are appended to `data/Output/Urls.csv` with these columns:
+Results are written to `data/Output/Urls.csv` with these columns:
 
 | Column | Description | Example |
 |--------|-------------|---------|
-| `role` | The matched role (or `N/A`) | `CEO` |
-| `firm` | The target company | `Acme Corp` |
-| `name` | Profile title (from the DuckDuckGo result) | `John Doe` |
-| `linkedin_url` | Full LinkedIn profile URL | `https://www.linkedin.com/in/johndoe` |
+| `name` | The person searched for (from input) | `Marco Rossi` |
+| `firm` | The target company | `Lavazza` |
+| `linkedin_url` | Full LinkedIn profile URL (or `N/A`) | `https://it.linkedin.com/in/marco-rossi` |
 | `status` | Validation status code (see below) | `match_` |
+
+---
+
+## Multi-threading
+
+The pipeline supports multi-threaded processing to speed up large runs:
+
+```bash
+python -m finder.main 4   # split work across 4 threads
+```
+
+- Each thread writes to its own temporary CSV (`temp_thread_0.csv`, etc.)
+- At the end, all temp files are merged into the final `Urls.csv`, sorted by input order, and deduplicated
+- **Resume support**: if the process is interrupted and restarted with the same thread count, it picks up where it left off
+- **Thread count mismatch**: if restarted with a different thread count, partial results are merged into `Urls.csv` first, then processing restarts with remaining persons
+- A shared lock prevents duplicate URLs across threads
 
 ---
 
@@ -218,17 +207,16 @@ Results are appended to `data/Output/Urls.csv` with these columns:
 
 The pipeline uses Python's `logging` module with timestamped, levelled output to the terminal.
 
-**Format:** `[HH:MM:SS] LEVEL | module | message`
+**Format:** `[HH:MM:SS] LEVEL | ThreadName | module | message`
 
 ### Key log messages
 
 | Level | Source | What it tells you |
 |-------|--------|-------------------|
-| INFO | `finder.main` | Firm progress (`Processing firm 3/120: "Acme Corp"`) |
+| INFO | `finder.main` | Person progress (`Processing person 3/120: "Marco Rossi" at "Lavazza"`) |
 | INFO | `finder.main` | Match found and CSV append confirmation |
-| WARNING | `finder.main` | No match found for a firm |
+| WARNING | `finder.main` | No match found for a person |
 | INFO | `finder.extract.validation` | DuckDuckGo search and LLM invocation |
-| INFO | `finder.extract.validation` | Raw LLM response (`LLM response: "TRUE"`) |
 | WARNING | `finder.extract.validation` | No LinkedIn profile found in DuckDuckGo results |
 | DEBUG | `finder.search.query_builder` | Built query string |
 | DEBUG | `finder.storage.writers` | Individual row written to CSV |
@@ -242,16 +230,13 @@ setup_logger(level=logging.DEBUG)
 ### Example terminal output
 
 ```
-[14:32:01] INFO | finder.main | Loaded 50 firms and 3 priority tiers
-[14:32:01] INFO | finder.main | Processing firm 1/50: "Acme Corp"
-[14:32:01] INFO | finder.main | Searching: firm="Acme Corp" role="HR_Director"
-[14:32:05] INFO | finder.extract.validation | DuckDuckGo search - Linkedin profile: Acme Corp HR_Director
-[14:32:07] INFO | finder.extract.validation | Found a LinkedIn profile in DuckDuckGo results, running LLM validation
-[14:32:08] INFO | finder.extract.validation | LLM validation for https://www.linkedin.com/in/janedoe | firm="Acme Corp" role="HR_Director"
-[14:32:09] INFO | finder.extract.validation | LLM response: "TRUE"
-[14:32:09] INFO | finder.extract.validation | Validation result: Perfect match (status=TRUE)
-[14:32:09] INFO | finder.main | MATCH for "Acme Corp": role="HR_Director" url=https://www.linkedin.com/in/janedoe status=TRUE
-[14:32:09] INFO | finder.main | Appended result to CSV: "Acme Corp" — HR_Director
+[14:32:01] INFO | Thread-1 | finder.main | Loaded 50 total persons (0 already in Urls.csv)
+[14:32:01] INFO | Thread-1 | finder.main | Processing person 1/50: "Marco Rossi" at "Lavazza"
+[14:32:01] INFO | Thread-1 | finder.main | Searching: person="Marco Rossi" firm="Lavazza"
+[14:32:05] INFO | Thread-1 | finder.extract.validation | LLM validation for https://it.linkedin.com/in/marco-rossi | person="Marco Rossi" firm="Lavazza"
+[14:32:09] INFO | Thread-1 | finder.extract.validation | Validation result: Perfect match (status=TRUE)
+[14:32:09] INFO | Thread-1 | finder.main | MATCH for "Marco Rossi" at "Lavazza": url=https://it.linkedin.com/in/marco-rossi status=TRUE
+[14:32:09] INFO | Thread-1 | finder.main | Appended result to temp CSV: "Marco Rossi" at "Lavazza"
 ```
 
 ---
@@ -262,11 +247,10 @@ The LLM classifies each candidate profile into one of these statuses:
 
 | LLM Response | `ResultStatus` Enum | CSV Value | Meaning |
 |-------------|---------------------|-----------|---------|
-| `TRUE` | `TOTAL_MATCH` | `match_` | Role and firm both confirmed |
-| `MISSING_FIRM` | `MISSING_FIRM` | `miss_firm` | Role matches but firm not mentioned |
-| `FALSE` | `NOT_MATCH` | `Not matched` | Neither role nor firm found |
+| `TRUE` | `TOTAL_MATCH` | `match_` | Person and firm both confirmed |
+| `FALSE` | `NOT_MATCH` | `Not matched` | Person or firm not found |
 
-When no profile is found at all for a firm, the pipeline writes a row with `status = Not matched` and all fields set to `N/A`.
+When no profile is found at all for a person, the pipeline writes a row with `status = Not matched` and `linkedin_url = N/A`.
 
 ---
 
@@ -274,16 +258,15 @@ When no profile is found at all for a firm, the pipeline writes a row with `stat
 
 ### Data Model
 
-The core data structure is the `RoleResult` frozen dataclass defined in `models.py`:
+The core data structure is the `PersonResult` frozen dataclass defined in `models.py`:
 
 ```python
 @dataclass(frozen=True, slots=True)
-class RoleResult:
-    role: str
+class PersonResult:
+    name: str
     firm: str
     linkedin_url: Optional[str] = None
     status: ResultStatus = ResultStatus.NOT_MATCH
-    name: Optional[str] = None
 ```
 
 Being frozen, instances are updated via `dataclasses.replace()` to create new copies with modified fields.
@@ -299,20 +282,19 @@ Being frozen, instances are updated via `dataclasses.replace()` to create new co
 
 `validation.py` combines search and validation in a single step:
 
-1. Searches DuckDuckGo (region `it-it`, max 5 results) using the query built by `query_builder`
+1. Searches DuckDuckGo (region `it-it`, max 25 results) using the query built by `query_builder`
 2. Iterates through results and filters for LinkedIn profile URLs using `linkedin_validator`
 3. For the first matching LinkedIn URL, extracts the title and snippet from the DuckDuckGo result
-4. Sends them to `gpt-5-mini` via LangChain with a strict prompt that constrains the model to respond with exactly one of three classification labels (`TRUE`, `MISSING_FIRM`, `FALSE`)
+4. Sends them to `gpt-5-mini` via LangChain with a strict prompt that constrains the model to respond with exactly `TRUE` or `FALSE`
 
 ---
 
 ## Limitations and Caveats
 
 - **DuckDuckGo availability** -- search and snippet retrieval depend on DuckDuckGo indexing the LinkedIn URL. Recently created profiles may not be found.
-- **DuckDuckGo rate limiting** -- running against a large number of firms may trigger rate limits or temporary blocks from DuckDuckGo.
-- **LLM accuracy** -- `gpt-5-mini` may occasionally misclassify roles, especially with non-English job titles or abbreviated role names.
+- **DuckDuckGo rate limiting** -- running against a large number of persons may trigger rate limits or temporary blocks from DuckDuckGo.
+- **LLM accuracy** -- `gpt-5-mini` may occasionally misclassify, especially with common names or non-standard name spellings.
 - **No proxy support** -- all requests go through your machine's default network. For large-scale runs, consider adding proxy rotation.
-- **Single-threaded** -- firms are processed sequentially. Parallelism is not implemented.
 
 ---
 

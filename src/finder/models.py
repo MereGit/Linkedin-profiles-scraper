@@ -11,12 +11,11 @@ class ResultStatus(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class RoleResult:
-    role: str
+class PersonResult:
+    name: str
     firm: str
     linkedin_url: Optional[str] = None
     status: ResultStatus = ResultStatus.NOT_MATCH
-    name: Optional[str] = None          
 
     def to_row(self) -> dict:
         """
